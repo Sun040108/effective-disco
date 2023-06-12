@@ -1,0 +1,77 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include <Arduino_ESP32_OTA.h>
+#include "driver/temp_sensor.h"
+// Wi-Fi 配置
+const char* ssid = "040108";
+const char* password = "88888888";
+
+// MQTT 配置
+const char* mqtt_server = "broker.hivemq.com";
+const int mqtt_port = 1883;
+const char* mqtt_username = "temperature";
+const char* mqtt_password = "88888888";
+const char* mqtt_topic = "temp";
+
+
+
+// 创建 Wi-Fi 客户端对象和 MQTT 客户端对象
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+void setup() {
+  // 开启串口输出
+  Serial.begin(115200);
+
+  // 连接 Wi-Fi 网络
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // 连接 MQTT 服务器
+  mqttClient.setServer(mqtt_server, mqtt_port);
+  while (!mqttClient.connected()) {
+    if (mqttClient.connect("ESP32-C3", mqtt_username, mqtt_password)) {
+      Serial.println("Connected to MQTT broker");
+    } else {
+      Serial.println("Failed to connect to MQTT broker");
+      delay(5000);
+    }
+  }
+
+  // 初始化 DHT 传感器
+  temp_sensor_config_t temp_sensor = {
+    .dac_offset = TSENS_DAC_L2,
+    .clk_div = 6,
+  };
+  temp_sensor_set_config(temp_sensor);
+  temp_sensor_start();
+}
+
+void loop() {
+  // 等待 Wi-Fi 和 MQTT 连接建立
+  if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
+    // 读取温度
+  float tsens_out;
+  temp_sensor_read_celsius(&tsens_out);
+    // 发布 MQTT 消息
+    char message[50];
+    snprintf(message, sizeof(message), "{\"当前温度为\": %.2f}", tsens_out);
+    mqttClient.publish("mqtt_topic", message);
+    Serial.printf("Published message: %s\n", message);
+  } else {
+    // 如果连接中断，则重新连接
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.begin(ssid, password);
+    }
+    if (!mqttClient.connected()) {
+      mqttClient.connect("ESP32-C3", mqtt_username, mqtt_password);
+    }
+    delay(5000);
+  }
+}
